@@ -341,6 +341,9 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         
         # 替换注意力处理器为支持 pruning 的版本
         self.attn.processor = PrunableQwenDoubleStreamAttnProcessor()
+        
+        # ⭐ 关键：设置 layer_idx 到 attn，以便 processor 可以访问缓存
+        self.attn._layer_idx = layer_idx
     
     def _modulate(self, x, mod_params):
         """Apply modulation to input tensor"""
