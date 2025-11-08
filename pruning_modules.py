@@ -456,9 +456,8 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         if hidden_states.dtype == torch.float16:
             hidden_states = hidden_states.clip(-65504, 65504)
         
-        # ===== 缓存管理（在步骤 0 和 2 后）=====
-        if global_pruning_cache.should_cache_current_step() and L_denoise is not None:
-            global_pruning_cache.cache_layer_hidden_states(self.layer_idx, hidden_states)
+        # ⭐ 注意：缓存已经在 Attention Processor 内部完成（K, V, hidden states）
+        # Block 层面不需要再次缓存
         
         return encoder_hidden_states, hidden_states
 
