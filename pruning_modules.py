@@ -213,23 +213,43 @@ class PrunableQwenDoubleStreamAttnProcessor:
         
         # ===== 计算 QKV =====
         if should_prune and cached_image_k is not None and cached_image_v is not None:
-            # ⚡ Pruning 模式：使用缓存的 K, V，不重新计算！
+            # ⚡ Pruning 模式：使用缓存的 K, V（已经过 reshape/norm/RoPE），不重新计算！
             denoise_hidden = hidden_states[:, :L_denoise]
             
-            # 去噪 tokens: 完整 QKV
+            # 去噪 tokens: 投影
             denoise_query = attn.to_q(denoise_hidden)
             denoise_key = attn.to_k(denoise_hidden)
             denoise_value = attn.to_v(denoise_hidden)
             
-            # 图像 tokens: ⚡⚡⚡ 直接使用缓存，完全跳过计算！
-            # 不需要 image_query（去噪 tokens 不 attend 到 image tokens）
+            # 去噪 tokens: reshape + norm
+            denoise_query = denoise_query.unflatten(-1, (attn.heads, -1))
+            denoise_key = denoise_key.unflatten(-1, (attn.heads, -1))
+            denoise_value = denoise_value.unflatten(-1, (attn.heads, -1))
             
+            if attn.norm_q is not None:
+                denoise_query = attn.norm_q(denoise_query)
+            if attn.norm_k is not None:
+                denoise_key = attn.norm_k(denoise_key)
+            
+            # 去噪 tokens: RoPE
+            if image_rotary_emb is not None:
+                img_freqs, _ = image_rotary_emb
+                seq_len_denoise = denoise_query.shape[1]
+                img_freqs_for_denoise = img_freqs[:seq_len_denoise]
+                denoise_query = apply_rotary_emb_qwen(denoise_query, img_freqs_for_denoise, use_real=False)
+                denoise_key = apply_rotary_emb_qwen(denoise_key, img_freqs_for_denoise, use_real=False)
+            
+            # 图像 tokens: ⚡⚡⚡ 直接使用缓存（已经过完整处理），完全跳过计算！
             # 合并 Q, K, V
             img_query = denoise_query  # 只有去噪部分有 Q
-            img_key = torch.cat([denoise_key, cached_image_k], dim=1)     # ⚡ 使用缓存
-            img_value = torch.cat([denoise_value, cached_image_v], dim=1)  # ⚡ 使用缓存
+            img_key = torch.cat([denoise_key, cached_image_k], dim=1)     # ⚡ 使用缓存（已处理）
+            img_value = torch.cat([denoise_value, cached_image_v], dim=1)  # ⚡ 使用缓存（已处理）
+            
+            # ⚡⚡⚡ 跳过后续的 reshape/norm/RoPE（已经在缓存中完成）
+            skip_transform = True
             
         else:
+            skip_transform = False
             # 正常模式：完整计算
             img_query = attn.to_q(hidden_states)
             img_key = attn.to_k(hidden_states)
@@ -241,43 +261,38 @@ class PrunableQwenDoubleStreamAttnProcessor:
         txt_value = attn.add_v_proj(encoder_hidden_states)
         
         # ===== Reshape for multi-head attention =====
-        img_query = img_query.unflatten(-1, (attn.heads, -1))
-        img_key = img_key.unflatten(-1, (attn.heads, -1))
-        img_value = img_value.unflatten(-1, (attn.heads, -1))
+        # ⚡ 如果使用了缓存，img 部分已经 reshape 过了
+        if not skip_transform:
+            img_query = img_query.unflatten(-1, (attn.heads, -1))
+            img_key = img_key.unflatten(-1, (attn.heads, -1))
+            img_value = img_value.unflatten(-1, (attn.heads, -1))
         
         txt_query = txt_query.unflatten(-1, (attn.heads, -1))
         txt_key = txt_key.unflatten(-1, (attn.heads, -1))
         txt_value = txt_value.unflatten(-1, (attn.heads, -1))
         
         # ===== QK normalization =====
-        if attn.norm_q is not None:
-            img_query = attn.norm_q(img_query)
-        if attn.norm_k is not None:
-            img_key = attn.norm_k(img_key)
+        # ⚡ 如果使用了缓存，img 部分已经 norm 过了
+        if not skip_transform:
+            if attn.norm_q is not None:
+                img_query = attn.norm_q(img_query)
+            if attn.norm_k is not None:
+                img_key = attn.norm_k(img_key)
+        
         if attn.norm_added_q is not None:
             txt_query = attn.norm_added_q(txt_query)
         if attn.norm_added_k is not None:
             txt_key = attn.norm_added_k(txt_key)
         
         # ===== Apply RoPE =====
-        if image_rotary_emb is not None:
+        # ⚡ 如果使用了缓存，img 部分已经 RoPE 过了
+        if not skip_transform and image_rotary_emb is not None:
             img_freqs, txt_freqs = image_rotary_emb
-            
-            # ⭐ 关键修复：在 pruning 模式下，需要分割 freqs
-            if should_prune and L_denoise is not None:
-                # img_query 只有去噪部分，需要对应的 freqs
-                # img_freqs 是完整的，需要只取前 L_denoise 部分
-                seq_len_query = img_query.shape[1]  # 去噪 tokens 长度
-                img_freqs_for_query = img_freqs[:seq_len_query]  # 只取对应部分
-                
-                # img_key 是完整的（包含去噪+图像），使用完整 freqs
-                img_query = apply_rotary_emb_qwen(img_query, img_freqs_for_query, use_real=False)
-                img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
-            else:
-                # 正常模式：完整应用
-                img_query = apply_rotary_emb_qwen(img_query, img_freqs, use_real=False)
-                img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
-            
+            img_query = apply_rotary_emb_qwen(img_query, img_freqs, use_real=False)
+            img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
+        
+        if image_rotary_emb is not None:
+            _, txt_freqs = image_rotary_emb
             txt_query = apply_rotary_emb_qwen(txt_query, txt_freqs, use_real=False)
             txt_key = apply_rotary_emb_qwen(txt_key, txt_freqs, use_real=False)
         
