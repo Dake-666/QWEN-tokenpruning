@@ -76,13 +76,16 @@ def setup_pipeline_with_pruning(enable_pruning=True):
     )
     print("   ✅ LoRA 加载成功")
     
-    # 4. 应用 Token Pruning（如果启用）
+    # 4. 应用自定义 Processor（无论是否启用 Pruning，都应用以便统计）
+    print("\n[4/5] 应用自定义 Processor 到 Transformer...")
+    apply_token_pruning_to_transformer(pipe.transformer)
+    
+    # 设置 pruning 开关
     if enable_pruning:
-        print("\n[4/5] 应用 Token Pruning 到 Transformer...")
-        apply_token_pruning_to_transformer(pipe.transformer)
+        print("   ✅ Token Pruning: 启用")
         global_pruning_cache.enabled = True
     else:
-        print("\n[4/5] 跳过 Token Pruning（基线模式）")
+        print("   ⚠️  Token Pruning: 禁用（仅使用自定义 Processor 进行统计）")
         global_pruning_cache.enabled = False
     
     # 5. 移动到 CUDA

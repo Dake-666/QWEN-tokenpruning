@@ -230,7 +230,10 @@ class TokenPruningCache:
         print(f"🔬 详细性能分析（按步骤）- {mode}")
         print("=" * 70)
         
-        step_names = ["步骤 1 (完整)", "步骤 2 (Pruning)", "步骤 3 (完整)", "步骤 4 (Pruning)"]
+        if self.enabled:
+            step_names = ["步骤 1 (完整)", "步骤 2 (Pruning)", "步骤 3 (完整)", "步骤 4 (Pruning)"]
+        else:
+            step_names = ["步骤 1", "步骤 2", "步骤 3", "步骤 4"]
         
         for step in range(4):
             print(f"\n{'='*70}")
