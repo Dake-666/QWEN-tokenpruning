@@ -81,15 +81,15 @@ def setup_pipeline_with_pruning(enable_pruning=True):
     apply_token_pruning_to_transformer(pipe.transformer)
     
     # 设置 pruning 开关和 debug_timing
-    global_pruning_cache.debug_timing = False  # ⚡ 关闭计时以获得真实性能
+    global_pruning_cache.debug_timing = True  # 🔬 开启详细计时
     global_pruning_cache.enabled = enable_pruning
     
     if enable_pruning:
         print("   ✅ Token Pruning: 启用")
-        print("   ⚡ Debug Timing: 关闭（获得真实性能）")
+        print("   🔬 Debug Timing: 开启（会有约 0.4s 的同步开销）")
     else:
         print("   ⚠️  Token Pruning: 禁用")
-        print("   ⚡ Debug Timing: 关闭（获得真实性能）")
+        print("   🔬 Debug Timing: 开启（会有约 0.4s 的同步开销）")
     
     # 5. 移动到 CUDA
     print("\n[5/5] 移动到 CUDA...")
@@ -175,10 +175,8 @@ def run_inference_with_pruning(
     inference_time = time.time() - inference_start
     print(f"\n⏱️  推理完成，耗时: {inference_time:.2f} 秒")
     
-    # 🔬 打印详细的性能统计（如果开启了 debug_timing）
-    # 注意：debug_timing 会引入约 0.4s 的 CUDA 同步开销
-    if global_pruning_cache.debug_timing:
-        global_pruning_cache.print_timing_stats()
+    # 🔬 打印详细的性能统计
+    global_pruning_cache.print_timing_stats()
     
     # 保存结果
     print("\n" + "-" * 70)
