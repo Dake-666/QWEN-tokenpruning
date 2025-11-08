@@ -32,8 +32,8 @@ def load_merged_pipeline(model_path="./models/qwen-image-edit-lightning-merged")
     pipe = QwenImageEditPipeline.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,  # 低内存模式
-        variant="bf16"  # 指定精度变体
+        low_cpu_mem_usage=True  # 低内存模式
+        # 不指定 variant，使用默认
     )
     
     print("移动到 CUDA...")
