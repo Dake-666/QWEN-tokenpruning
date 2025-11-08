@@ -48,6 +48,10 @@ class TokenPruningCache:
         self.num_clones = 0
         self.num_copies = 0
         
+        # 🔬 步骤级别计时
+        self.step_compute_time = [0.0, 0.0, 0.0, 0.0]  # 每步的纯计算时间（不含缓存）
+        self.step_cache_time = [0.0, 0.0, 0.0, 0.0]    # 每步的缓存时间
+        
     def should_prune_current_step(self) -> bool:
         """判断当前步骤是否需要 prune"""
         if not self.enabled:
@@ -416,24 +420,10 @@ class PrunableQwenDoubleStreamAttnProcessor:
         if should_cache and L_denoise is not None and not should_prune:
             layer_idx = getattr(attn, '_layer_idx', None)
             if layer_idx is not None:
-                # 🔬 开始计时 clone 操作
-                if global_pruning_cache.debug_timing:
-                    clone_start = torch.cuda.Event(enable_timing=True)
-                    clone_end = torch.cuda.Event(enable_timing=True)
-                    clone_start.record()
-                
-                # 缓存经过完整处理的 K, V（reshape + norm + RoPE 之后）
-                image_k = img_key[:, L_denoise:].clone()
-                image_v = img_value[:, L_denoise:].clone()
-                
-                # 🔬 结束计时 clone 操作
-                if global_pruning_cache.debug_timing:
-                    clone_end.record()
-                    torch.cuda.synchronize()
-                    clone_time = clone_start.elapsed_time(clone_end) / 1000.0
-                    global_pruning_cache.clone_time += clone_time
-                    global_pruning_cache.num_clones += 2  # K 和 V
-                    global_pruning_cache.cache_write_time += clone_time  # 加到写入时间
+                # ⚡⚡⚡ 优化：直接传递 slice，cache_layer_kv 会直接 copy 到预分配的 buffer
+                # 避免先 clone 再 copy 的双重拷贝
+                image_k = img_key[:, L_denoise:]  # 只是 view，不拷贝
+                image_v = img_value[:, L_denoise:]  # 只是 view，不拷贝
                 
                 global_pruning_cache.cache_layer_kv(layer_idx, image_k, image_v, None)
         
@@ -659,23 +649,8 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         # ⭐ 在 Block 结束时，更新缓存的 hidden states（如果需要）
         # 这样缓存的是经过 Attention + MLP 的最终状态
         if global_pruning_cache.should_cache_current_step() and L_denoise is not None:
-            # 🔬 开始计时 clone 操作
-            if global_pruning_cache.debug_timing:
-                clone_start = torch.cuda.Event(enable_timing=True)
-                clone_end = torch.cuda.Event(enable_timing=True)
-                clone_start.record()
-            
-            # 必须 clone，否则会被后续步骤修改
-            image_hidden_final = hidden_states[:, L_denoise:].clone()
-            
-            # 🔬 结束计时 clone 操作
-            if global_pruning_cache.debug_timing:
-                clone_end.record()
-                torch.cuda.synchronize()
-                clone_time = clone_start.elapsed_time(clone_end) / 1000.0
-                global_pruning_cache.clone_time += clone_time
-                global_pruning_cache.num_clones += 1  # hidden
-                global_pruning_cache.cache_write_time += clone_time  # 加到写入时间
+            # ⚡⚡⚡ 优化：直接传递 slice，update_layer_hidden 会直接 copy 到预分配的 buffer
+            image_hidden_final = hidden_states[:, L_denoise:]  # 只是 view，不拷贝
             
             global_pruning_cache.update_layer_hidden(self.layer_idx, image_hidden_final)
         
