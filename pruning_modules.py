@@ -61,12 +61,12 @@ class TokenPruningCache:
         if layer_idx not in self.layer_caches:
             self.layer_caches[layer_idx] = {}
         
-        # ⭐ 关键：缓存 K, V 和 hidden states，避免重复计算
-        # 确保在 GPU 上
+        # ⚡ 优化：传入的 tensor 已经是 clone 过的，直接使用，避免双重 clone
+        # 只需确保在 GPU 上（通常已经是）
         cache_dict = {
-            'k': image_k.clone() if image_k.is_cuda else image_k.cuda(),
-            'v': image_v.clone() if image_v.is_cuda else image_v.cuda(),
-            'hidden': image_hidden.clone() if image_hidden.is_cuda else image_hidden.cuda(),
+            'k': image_k if image_k.is_cuda else image_k.cuda(),
+            'v': image_v if image_v.is_cuda else image_v.cuda(),
+            'hidden': image_hidden if image_hidden.is_cuda else image_hidden.cuda(),
         }
         
         self.layer_caches[layer_idx][self.current_step] = cache_dict
@@ -138,6 +138,7 @@ class PrunableQwenDoubleStreamAttnProcessor:
         
         # 检查是否需要 pruning
         should_prune = global_pruning_cache.should_prune_current_step()
+        should_cache = global_pruning_cache.should_cache_current_step()
         L_denoise = global_pruning_cache.denoise_token_length
         
         seq_txt = encoder_hidden_states.shape[1]
@@ -174,11 +175,12 @@ class PrunableQwenDoubleStreamAttnProcessor:
             img_key = attn.to_k(hidden_states)
             img_value = attn.to_v(hidden_states)
             
-            # ⚡ 如果需要缓存，保存 image tokens 的 K, V
-            if global_pruning_cache.should_cache_current_step() and L_denoise is not None:
+            # ⚡ 如果需要缓存，保存 image tokens 的 K, V（只 clone 一次，避免双重 clone）
+            if should_cache and L_denoise is not None:
                 layer_idx = getattr(attn, '_layer_idx', None)
                 if layer_idx is not None:
-                    # 分离 image tokens 的 K, V
+                    # ⚡ 优化：分离 image tokens 的 K, V，clone 一次
+                    # cache_layer_kv 不会再次 clone，避免双重内存拷贝
                     image_k = img_key[:, L_denoise:].clone()
                     image_v = img_value[:, L_denoise:].clone()
                     image_hidden = hidden_states[:, L_denoise:].clone()
