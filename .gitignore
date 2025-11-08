@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# 模型和数据文件
+models/lightning_lora/
+models/qwen-image-edit-lightning-merged/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# 图像文件
+*.png
+*.jpg
+*.jpeg
+!example_input.png
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+

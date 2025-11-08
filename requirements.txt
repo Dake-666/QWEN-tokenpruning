@@ -1,0 +1,7 @@
+torch
+pillow
+diffusers @ git+https://github.com/huggingface/diffusers
+transformers
+accelerate
+
+
