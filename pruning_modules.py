@@ -219,8 +219,15 @@ class TokenPruningCache:
         if not self.debug_timing:
             return
         
+        # 检查是否有数据
+        total_count = sum(self.step_layer_count)
+        if total_count == 0:
+            print("\n⚠️  没有收集到计时数据")
+            return
+        
         print("\n" + "=" * 70)
-        print("🔬 详细性能分析（按步骤）")
+        mode = "Token Pruning" if self.enabled else "Baseline (无 Pruning)"
+        print(f"🔬 详细性能分析（按步骤）- {mode}")
         print("=" * 70)
         
         step_names = ["步骤 1 (完整)", "步骤 2 (Pruning)", "步骤 3 (完整)", "步骤 4 (Pruning)"]
@@ -254,12 +261,43 @@ class TokenPruningCache:
         print(f"📊 关键对比")
         print(f"=" * 70)
         
-        avg_full = (self.step_time_qkv[0] + self.step_time_qkv[2]) / 2
-        avg_pruning = (self.step_time_qkv[1] + self.step_time_qkv[3]) / 2
-        print(f"\nQKV 投影:")
-        print(f"  完整步骤平均: {avg_full:.4f}s")
-        print(f"  Pruning平均:  {avg_pruning:.4f}s")
-        print(f"  差异: {avg_pruning - avg_full:.4f}s ({(avg_pruning/avg_full-1)*100:+.1f}%)")
+        if self.enabled:
+            # Token Pruning 模式：对比完整 vs Pruning 步骤
+            print(f"\n完整步骤（1,3）vs Pruning步骤（2,4）：")
+            
+            operations = [
+                ("QKV 投影", self.step_time_qkv),
+                ("Reshape", self.step_time_reshape),
+                ("Normalization", self.step_time_norm),
+                ("RoPE", self.step_time_rope),
+                ("torch.cat", self.step_time_cat),
+                ("Attention", self.step_time_attention),
+                ("输出投影", self.step_time_output_proj),
+                ("MLP", self.step_time_mlp),
+            ]
+            
+            for name, times in operations:
+                avg_full = (times[0] + times[2]) / 2
+                avg_pruning = (times[1] + times[3]) / 2
+                if avg_full > 0:
+                    speedup = (avg_full - avg_pruning) / avg_full * 100
+                    print(f"  {name:15s}: {avg_full:.4f}s → {avg_pruning:.4f}s ({speedup:+.1f}%)")
+        else:
+            # Baseline 模式：显示 4 步的一致性
+            print(f"\n各步骤一致性检查：")
+            total_times = []
+            for step in range(4):
+                total = (self.step_time_qkv[step] + self.step_time_reshape[step] + 
+                        self.step_time_norm[step] + self.step_time_rope[step] + 
+                        self.step_time_cat[step] + self.step_time_attention[step] + 
+                        self.step_time_output_proj[step] + self.step_time_mlp[step])
+                total_times.append(total)
+                print(f"  步骤 {step+1}: {total:.4f}s")
+            
+            avg = sum(total_times) / len(total_times)
+            variance = sum((t - avg)**2 for t in total_times) / len(total_times)
+            print(f"\n  平均: {avg:.4f}s")
+            print(f"  标准差: {variance**0.5:.4f}s")
         
         print("=" * 70)
     
