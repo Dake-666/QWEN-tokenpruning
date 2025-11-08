@@ -212,8 +212,21 @@ class PrunableQwenDoubleStreamAttnProcessor:
             
             img_freqs, txt_freqs = image_rotary_emb
             
-            img_query = apply_rotary_emb_qwen(img_query, img_freqs, use_real=False)
-            img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
+            # ⭐ 关键修复：在 pruning 模式下，需要分割 freqs
+            if should_prune and L_denoise is not None:
+                # img_query 只有去噪部分，需要对应的 freqs
+                # img_freqs 是完整的，需要只取前 L_denoise 部分
+                seq_len_query = img_query.shape[1]  # 去噪 tokens 长度
+                img_freqs_for_query = img_freqs[:seq_len_query]  # 只取对应部分
+                
+                # img_key 是完整的（包含去噪+图像），使用完整 freqs
+                img_query = apply_rotary_emb_qwen(img_query, img_freqs_for_query, use_real=False)
+                img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
+            else:
+                # 正常模式：完整应用
+                img_query = apply_rotary_emb_qwen(img_query, img_freqs, use_real=False)
+                img_key = apply_rotary_emb_qwen(img_key, img_freqs, use_real=False)
+            
             txt_query = apply_rotary_emb_qwen(txt_query, txt_freqs, use_real=False)
             txt_key = apply_rotary_emb_qwen(txt_key, txt_freqs, use_real=False)
         
