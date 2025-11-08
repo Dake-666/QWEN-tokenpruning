@@ -4,6 +4,8 @@
 """
 import torch
 import math
+import os
+from datetime import datetime
 from PIL import Image
 from diffusers import QwenImageEditPipeline, FlowMatchEulerDiscreteScheduler
 
@@ -70,7 +72,7 @@ def run_lightning_inference(
     pipe,
     image_path="input.png",
     prompt="Change the rabbit's color to purple, with a flash light background.",
-    output_path="output_lightning_4steps.png"
+    output_dir="outputs"
 ):
     """
     使用 Lightning 运行推理
@@ -78,6 +80,15 @@ def run_lightning_inference(
     print("\n" + "=" * 60)
     print("运行 Lightning 推理")
     print("=" * 60)
+    
+    # 创建输出目录
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"\n输出目录: {output_dir}")
+    
+    # 生成带时间戳的输出文件名
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_filename = f"output_lightning_4steps_{timestamp}.png"
+    output_path = os.path.join(output_dir, output_filename)
     
     # 加载输入图像
     print(f"\n1. 加载输入图像: {image_path}")
@@ -106,11 +117,18 @@ def run_lightning_inference(
         output_image = output.images[0]
     
     # 保存结果
-    print(f"\n4. 保存结果: {output_path}")
+    print(f"\n4. 保存结果...")
     output_image.save(output_path)
+    print(f"   文件: {output_path}")
+    print(f"   时间戳: {timestamp}")
+    
+    # 同时保存一个不带时间戳的版本（方便查看最新）
+    latest_path = os.path.join(output_dir, "latest_output.png")
+    output_image.save(latest_path)
+    print(f"   最新: {latest_path}")
     
     print("\n✅ 推理完成！")
-    return output_image
+    return output_image, output_path
 
 def main():
     """
@@ -120,12 +138,18 @@ def main():
     pipe = setup_lightning_pipeline()
     
     # 运行推理
-    run_lightning_inference(
+    output_image, output_path = run_lightning_inference(
         pipe,
         image_path="input.png",
         prompt="Change the rabbit's color to purple, with a flash light background.",
-        output_path="output_lightning_4steps.png"
+        output_dir="outputs"  # ⭐ 输出到 outputs 文件夹
     )
+    
+    print("\n" + "=" * 60)
+    print("✅ 完成！")
+    print("=" * 60)
+    print(f"\n输出文件: {output_path}")
+    print(f"查看输出: ls -l {output_path}")
 
 if __name__ == "__main__":
     main()

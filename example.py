@@ -3,6 +3,7 @@ Qwen-Image-Edit 使用示例
 参考: https://huggingface.co/Qwen/Qwen-Image-Edit
 """
 import os
+from datetime import datetime
 from PIL import Image
 import torch
 
@@ -33,11 +34,28 @@ inputs = {
     "num_inference_steps": 50,
 }
 
+# 创建输出目录
+output_dir = "outputs"
+os.makedirs(output_dir, exist_ok=True)
+
+# 生成带时间戳的输出文件名
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_filename = f"output_edit_50steps_{timestamp}.png"
+output_path = os.path.join(output_dir, output_filename)
+
 # 执行图像编辑
+print("开始推理（50步）...")
 with torch.inference_mode():
     output = pipeline(**inputs)
     output_image = output.images[0]
-    output_image.save("output_image_edit.png")
-    print("图片已保存至", os.path.abspath("output_image_edit.png"))
+    
+    # 保存带时间戳的版本
+    output_image.save(output_path)
+    print(f"图片已保存至: {os.path.abspath(output_path)}")
+    
+    # 保存最新版本
+    latest_path = os.path.join(output_dir, "latest_output_50steps.png")
+    output_image.save(latest_path)
+    print(f"最新版本: {os.path.abspath(latest_path)}")
 
 

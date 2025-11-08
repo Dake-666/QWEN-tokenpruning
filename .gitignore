@@ -20,6 +20,7 @@ models/qwen-image-edit-lightning-merged/
 *.ckpt
 
 # 图像文件（忽略输出图片，保留示例输入图片）
+outputs/
 output_*.png
 *_output.png
 # 允许提交示例输入图片
