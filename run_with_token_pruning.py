@@ -148,54 +148,17 @@ def run_inference_with_pruning(
     print("推理过程:")
     print("-" * 70)
     
-    # Hook 到 transformer 来捕获 token 长度信息
-    token_length_captured = [False]
-    
-    def capture_token_length(module, input, output):
-        """捕获 token 长度信息"""
-        if not token_length_captured[0]:
-            hidden_states = input[0]  # 第一个输入是 hidden_states
-            total_length = hidden_states.shape[1]
-            # 估计：假设去噪和图像 tokens 大致相等或从某处获取
-            # 这需要从 pipeline 传递，暂时用一个合理的估计
-            global_pruning_cache.total_token_length = total_length
-            token_length_captured[0] = True
-    
-    # 注册 hook（仅用于捕获信息）
-    hook_handle = pipe.transformer.register_forward_pre_hook(capture_token_length)
+    # Token 长度信息已经在 pipeline 的 __call__ 中设置，不需要 hook
     
     # 自定义去噪循环
     inference_start = time.time()
     step_times = []
     
     try:
-        # ⚠️ 问题：我们需要访问 pipeline 内部的去噪循环
-        # 但 __call__ 是封装的，不容易拦截每一步
-        
-        # 方案：使用 callback_on_step_end
-        def step_end_callback(pipe_obj, step_idx, timestep, callback_kwargs):
-            """每步结束后的回调"""
-            # 更新步骤索引
-            global_pruning_cache.current_step = step_idx + 1  # 准备下一步
-            
-            # 打印步骤信息
-            if global_pruning_cache.should_prune_current_step():
-                cache_step = global_pruning_cache.get_cache_step_idx()
-                print(f"  步骤 {step_idx + 1}/4: 使用缓存（来自步骤 {cache_step + 1}）⚡")
-            else:
-                print(f"  步骤 {step_idx + 1}/4: 完整计算")
-            
-            return callback_kwargs
-        
-        # 在第一步前设置 denoise token length
-        # 这需要通过其他方式传递，暂时使用一个 hook
-        
+        # 使用自定义 Pipeline 的 __call__ 方法
+        # Token 长度信息会在内部自动设置
         with torch.inference_mode():
-            output = pipe(
-                **inference_params,
-                callback_on_step_end=step_end_callback,
-                callback_on_step_end_tensor_inputs=["latents"]
-            )
+            output = pipe(**inference_params)
             output_image = output.images[0]
     
     except Exception as e:
@@ -203,8 +166,6 @@ def run_inference_with_pruning(
         import traceback
         traceback.print_exc()
         return None, None, None
-    finally:
-        hook_handle.remove()
     
     inference_time = time.time() - inference_start
     
