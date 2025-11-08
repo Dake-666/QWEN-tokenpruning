@@ -193,7 +193,23 @@ class PrunableQwenDoubleStreamAttnProcessor:
         
         # ===== Apply RoPE =====
         if image_rotary_emb is not None:
-            from models.transformers.transformer_qwenimage import apply_rotary_emb_qwen
+            # 导入 RoPE 函数（从 diffusers 内部）
+            # 直接实现以避免导入问题
+            def apply_rotary_emb_qwen(x, freqs, use_real=True):
+                """简化的 RoPE 实现"""
+                if use_real:
+                    cos, sin = freqs
+                    cos = cos[None, None].to(x.device)
+                    sin = sin[None, None].to(x.device)
+                    x_real, x_imag = x.reshape(*x.shape[:-1], -1, 2).unbind(-1)
+                    x_rotated = torch.stack([-x_imag, x_real], dim=-1).flatten(3)
+                    return (x.float() * cos + x_rotated.float() * sin).to(x.dtype)
+                else:
+                    x_rotated = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
+                    freqs = freqs.unsqueeze(1)
+                    x_out = torch.view_as_real(x_rotated * freqs).flatten(3)
+                    return x_out.type_as(x)
+            
             img_freqs, txt_freqs = image_rotary_emb
             
             img_query = apply_rotary_emb_qwen(img_query, img_freqs, use_real=False)

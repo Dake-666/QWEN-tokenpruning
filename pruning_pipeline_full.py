@@ -59,7 +59,15 @@ class TokenPruningQwenImageEditPipeline(QwenImageEditPipeline):
         增强的推理方法，支持 Token Pruning
         """
         # ===== 前期准备（与原版相同）=====
-        from pipelines.qwenimage.pipeline_qwenimage_edit import calculate_dimensions
+        # 定义 calculate_dimensions 函数（避免相对导入问题）
+        import math
+        
+        def calculate_dimensions(target_area, ratio):
+            width = math.sqrt(target_area * ratio)
+            height = width / ratio
+            width = round(width / 32) * 32
+            height = round(height / 32) * 32
+            return width, height, None
         
         image_size = image[0].size if isinstance(image, list) else image.size
         calculated_width, calculated_height, _ = calculate_dimensions(1024 * 1024, image_size[0] / image_size[1])
@@ -158,8 +166,21 @@ class TokenPruningQwenImageEditPipeline(QwenImageEditPipeline):
         ] * batch_size
         
         # 准备 timesteps
-        from pipelines.qwenimage.pipeline_qwenimage_edit import retrieve_timesteps
-        from pipelines.qwenimage.pipeline_qwenimage import calculate_shift
+        # 定义辅助函数（避免相对导入问题）
+        def calculate_shift(
+            image_seq_len,
+            base_seq_len: int = 256,
+            max_seq_len: int = 4096,
+            base_shift: float = 0.5,
+            max_shift: float = 1.15,
+        ):
+            m = (max_shift - base_shift) / (max_seq_len - base_seq_len)
+            b = base_shift - m * base_seq_len
+            mu = image_seq_len * m + b
+            return mu
+        
+        # retrieve_timesteps 直接从 diffusers 导入
+        from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion import retrieve_timesteps
         
         sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps) if sigmas is None else sigmas
         image_seq_len = latents.shape[1]
