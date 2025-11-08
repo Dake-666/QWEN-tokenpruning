@@ -127,7 +127,7 @@ def run_inference_with_pruning(
     print(f"[输入] Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
     print(f"[参数] 推理步数: {num_steps}")
     print(f"[参数] CFG Scale: {cfg_scale}")
-    print(f"[参数] Token Pruning: {'启用' if enable_pruning else '禁用'}")
+    print(f"[参数] Token Pruning: {'启用' if enable_pruning else '禁用 (基线对比)'}")
     
     # 准备推理参数
     inference_params = {
@@ -145,14 +145,12 @@ def run_inference_with_pruning(
     
     # 执行推理
     print("\n" + "-" * 70)
-    print("推理过程:")
+    print(f"{'推理过程 (Token Pruning)' if enable_pruning else '推理过程 (Baseline)'}:")
     print("-" * 70)
     
-    # Token 长度信息已经在 pipeline 的 __call__ 中设置，不需要 hook
-    
-    # 自定义去噪循环
+    # ⏱️ 开始计时
+    print("\n⏱️  计时开始...")
     inference_start = time.time()
-    step_times = []
     
     try:
         # 使用自定义 Pipeline 的 __call__ 方法
@@ -167,24 +165,34 @@ def run_inference_with_pruning(
         traceback.print_exc()
         return None, None, None
     
+    # ⏱️ 结束计时
     inference_time = time.time() - inference_start
+    print(f"\n⏱️  推理完成，耗时: {inference_time:.2f} 秒")
     
     # 保存结果
     print("\n" + "-" * 70)
+    print("保存结果:")
+    print("-" * 70)
+    
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     suffix = "pruning" if enable_pruning else "baseline"
     output_filename = f"output_{suffix}_{timestamp}.png"
     output_path = os.path.join(output_dir, output_filename)
     
     output_image.save(output_path)
-    print(f"✅ 保存成功: {output_path}")
+    print(f"✅ 文件: {output_path}")
     
     # 保存最新版本
     latest_path = os.path.join(output_dir, f"latest_{suffix}.png")
     output_image.save(latest_path)
-    print(f"   最新版本: {latest_path}")
+    print(f"   最新: {latest_path}")
     
-    print(f"\n⏱️  推理时间: {inference_time:.2f} 秒")
+    # 时间统计
+    print(f"\n" + "=" * 70)
+    print(f"⏱️  性能统计:")
+    print("=" * 70)
+    print(f"  推理时间: {inference_time:.2f} 秒")
+    print(f"  模式: {'Token Pruning' if enable_pruning else 'Baseline (无优化)'}")
     
     return output_image, output_path, inference_time
 
@@ -248,15 +256,30 @@ def main():
     
     if output_path:
         print("\n" + "=" * 70)
-        print("✅ 完成！")
+        print("✅ 实验完成！")
         print("=" * 70)
-        print(f"\n模式: {'Token Pruning' if not args.no_pruning else 'Baseline (无 Pruning)'}")
-        print(f"推理时间: {inference_time:.2f} 秒")
-        print(f"输出文件: {output_path}")
+        
+        mode_name = "Token Pruning" if not args.no_pruning else "Baseline"
+        print(f"\n📊 实验结果:")
+        print(f"  模式: {mode_name}")
+        print(f"  推理时间: {inference_time:.2f} 秒")
+        print(f"  输出文件: {output_path}")
         
         if not args.no_pruning:
-            print("\n💡 提示: 运行基线对比:")
-            print(f"  python run_with_token_pruning.py -i {args.input} -p \"{args.prompt[:50]}...\" --no-pruning")
+            print("\n💡 提示: 运行基线对比以评估加速效果:")
+            print(f"  python run_with_token_pruning.py \\")
+            print(f"      -i {args.input} \\")
+            print(f"      -p \"{args.prompt[:50]}...\" \\")
+            print(f"      --no-pruning")
+            print(f"\n  然后对比:")
+            print(f"    outputs_pruning/latest_pruning.png  ← Token Pruning")
+            print(f"    outputs_pruning/latest_baseline.png ← Baseline")
+        else:
+            print("\n💡 提示: 运行 Token Pruning 版本:")
+            print(f"  python run_with_token_pruning.py \\")
+            print(f"      -i {args.input} \\")
+            print(f"      -p \"{args.prompt[:50]}...\"")
+            print(f"\n  查看加速效果和质量对比")
 
 
 if __name__ == "__main__":
