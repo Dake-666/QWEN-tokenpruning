@@ -682,6 +682,12 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + txt_gate1 * txt_attn_output
         
         # ===== Image stream - norm2 + MLP =====
+        # 🔬 计时 MLP
+        if global_pruning_cache.debug_timing:
+            mlp_start = torch.cuda.Event(enable_timing=True)
+            mlp_end = torch.cuda.Event(enable_timing=True)
+            mlp_start.record()
+        
         if should_prune:
             # ⚠️ Pruning 模式：必须有 cached_image_hidden
             if cached_image_hidden is None:
@@ -714,6 +720,12 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         txt_modulated2, txt_gate2 = self._modulate(txt_normed2, txt_mod2)
         txt_mlp_output = self.txt_mlp(txt_modulated2)
         encoder_hidden_states = encoder_hidden_states + txt_gate2 * txt_mlp_output
+        
+        # 🔬 记录 MLP 时间
+        if global_pruning_cache.debug_timing:
+            mlp_end.record()
+            torch.cuda.synchronize()
+            global_pruning_cache.time_mlp += mlp_start.elapsed_time(mlp_end) / 1000.0
         
         # ===== Clip for fp16 =====
         if encoder_hidden_states.dtype == torch.float16:
