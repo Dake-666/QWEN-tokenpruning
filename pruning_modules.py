@@ -116,17 +116,20 @@ class TokenPruningCache:
     def get_cached_layer_kv(self, layer_idx: int):
         """获取某一层的缓存 image tokens K, V 和 hidden states（全部在 GPU 上）"""
         if not self.should_prune_current_step():
-            return None, None, None
+            raise RuntimeError("在非 Pruning 步骤调用 get_cached_layer_kv！")
         
         cache_step = self.get_cache_step_idx()
         if cache_step is None:
-            return None, None, None
+            raise RuntimeError(f"无法确定缓存步骤！current_step={self.current_step}")
         
         if layer_idx not in self.layer_caches:
-            return None, None, None
+            raise RuntimeError(f"Layer {layer_idx} 没有任何缓存！Available layers: {list(self.layer_caches.keys())}")
         
         if cache_step not in self.layer_caches[layer_idx]:
-            return None, None, None
+            raise RuntimeError(
+                f"Layer {layer_idx} 缺少步骤 {cache_step} 的缓存！"
+                f"Available steps: {list(self.layer_caches[layer_idx].keys())}"
+            )
         
         cache_dict = self.layer_caches[layer_idx][cache_step]
         # ⭐ 确保返回的缓存在 GPU 上
@@ -204,15 +207,25 @@ class PrunableQwenDoubleStreamAttnProcessor:
         seq_txt = encoder_hidden_states.shape[1]
         
         # ===== 获取缓存的 K, V（如果是 pruning 步骤）=====
-        cached_image_k, cached_image_v, cached_image_hidden = None, None, None
         if should_prune and L_denoise is not None:
-            # 尝试从缓存获取
+            # ⚠️ Pruning 模式：必须有缓存，否则报错
             layer_idx = getattr(attn, '_layer_idx', None)
-            if layer_idx is not None:
-                cached_image_k, cached_image_v, cached_image_hidden = global_pruning_cache.get_cached_layer_kv(layer_idx)
+            if layer_idx is None:
+                raise RuntimeError(f"Pruning 模式下 attn 缺少 _layer_idx 属性！")
+            
+            cached_image_k, cached_image_v, cached_image_hidden = global_pruning_cache.get_cached_layer_kv(layer_idx)
+            
+            if cached_image_k is None or cached_image_v is None:
+                raise RuntimeError(
+                    f"Pruning 模式下缺少缓存！\n"
+                    f"  Layer: {layer_idx}\n"
+                    f"  Step: {global_pruning_cache.current_step}\n"
+                    f"  Expected cache step: {global_pruning_cache.get_cache_step_idx()}\n"
+                    f"  Available caches: {list(global_pruning_cache.layer_caches.get(layer_idx, {}).keys())}"
+                )
         
         # ===== 计算 QKV =====
-        if should_prune and cached_image_k is not None and cached_image_v is not None:
+        if should_prune:
             # ⚡ Pruning 模式：使用缓存的 K, V（已经过 reshape/norm/RoPE），不重新计算！
             denoise_hidden = hidden_states[:, :L_denoise]
             
@@ -457,7 +470,13 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         img_attn_output, txt_attn_output = attn_output
         
         # ===== 处理 attention 输出（考虑 pruning）=====
-        if should_prune and cached_image_hidden is not None and L_denoise is not None:
+        if should_prune:
+            # ⚠️ Pruning 模式：必须有 cached_image_hidden
+            if cached_image_hidden is None:
+                raise RuntimeError("Pruning 模式下缺少 cached_image_hidden！")
+            if L_denoise is None:
+                raise RuntimeError("Pruning 模式下 L_denoise 为 None！")
+            
             # ⚡ Pruning 模式：
             # - img_attn_output 只包含去噪部分
             # - image 部分使用缓存的 hidden states（不更新）
@@ -479,7 +498,13 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         encoder_hidden_states = encoder_hidden_states + txt_gate1 * txt_attn_output
         
         # ===== Image stream - norm2 + MLP =====
-        if should_prune and cached_image_hidden is not None and L_denoise is not None:
+        if should_prune:
+            # ⚠️ Pruning 模式：必须有 cached_image_hidden
+            if cached_image_hidden is None:
+                raise RuntimeError("Pruning 模式下缺少 cached_image_hidden（MLP 阶段）！")
+            if L_denoise is None:
+                raise RuntimeError("Pruning 模式下 L_denoise 为 None（MLP 阶段）！")
+            
             # ⚡ Pruning 模式：只对去噪 tokens 计算 MLP ⚡
             denoise_hidden = hidden_states[:, :L_denoise]
             denoise_normed2 = self.img_norm2(denoise_hidden)
