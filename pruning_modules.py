@@ -53,7 +53,7 @@ class TokenPruningCache:
         # 步骤 0 和 2 (步骤 1 和 3) 需要缓存
         return self.current_step in [0, 2]
     
-    def cache_layer_kv(self, layer_idx: int, image_k: torch.Tensor, image_v: torch.Tensor, image_hidden: torch.Tensor):
+    def cache_layer_kv(self, layer_idx: int, image_k: torch.Tensor, image_v: torch.Tensor, image_hidden: torch.Tensor = None):
         """缓存某一层的 image tokens K, V 和 hidden states（全部在 GPU 上）"""
         if not self.should_cache_current_step():
             return
@@ -66,10 +66,18 @@ class TokenPruningCache:
         cache_dict = {
             'k': image_k if image_k.is_cuda else image_k.cuda(),
             'v': image_v if image_v.is_cuda else image_v.cuda(),
-            'hidden': image_hidden if image_hidden.is_cuda else image_hidden.cuda(),
+            'hidden': image_hidden if (image_hidden is None or image_hidden.is_cuda) else image_hidden.cuda(),
         }
         
         self.layer_caches[layer_idx][self.current_step] = cache_dict
+    
+    def update_layer_hidden(self, layer_idx: int, image_hidden: torch.Tensor):
+        """更新某一层缓存中的 hidden states"""
+        if not self.should_cache_current_step():
+            return
+        
+        if layer_idx in self.layer_caches and self.current_step in self.layer_caches[layer_idx]:
+            self.layer_caches[layer_idx][self.current_step]['hidden'] = image_hidden if image_hidden.is_cuda else image_hidden.cuda()
     
     def get_cached_layer_kv(self, layer_idx: int):
         """获取某一层的缓存 image tokens K, V 和 hidden states（全部在 GPU 上）"""
@@ -181,10 +189,11 @@ class PrunableQwenDoubleStreamAttnProcessor:
                 if layer_idx is not None:
                     # ⚡ 优化：分离 image tokens 的 K, V，clone 一次
                     # cache_layer_kv 不会再次 clone，避免双重内存拷贝
+                    # 注意：hidden_states 将在 Block 结束时缓存（而不是这里）
                     image_k = img_key[:, L_denoise:].clone()
                     image_v = img_value[:, L_denoise:].clone()
-                    image_hidden = hidden_states[:, L_denoise:].clone()
-                    global_pruning_cache.cache_layer_kv(layer_idx, image_k, image_v, image_hidden)
+                    # 暂时用 None 占位，Block 层面会更新
+                    global_pruning_cache.cache_layer_kv(layer_idx, image_k, image_v, None)
         
         # 文本流：始终正常计算
         txt_query = attn.add_q_proj(encoder_hidden_states)
@@ -456,8 +465,11 @@ class PrunableQwenImageTransformerBlock(nn.Module):
         if hidden_states.dtype == torch.float16:
             hidden_states = hidden_states.clip(-65504, 65504)
         
-        # ⭐ 注意：缓存已经在 Attention Processor 内部完成（K, V, hidden states）
-        # Block 层面不需要再次缓存
+        # ⭐ 在 Block 结束时，更新缓存的 hidden states（如果需要）
+        # 这样缓存的是经过 Attention + MLP 的最终状态
+        if global_pruning_cache.should_cache_current_step() and L_denoise is not None:
+            image_hidden_final = hidden_states[:, L_denoise:].clone()
+            global_pruning_cache.update_layer_hidden(self.layer_idx, image_hidden_final)
         
         return encoder_hidden_states, hidden_states
 
