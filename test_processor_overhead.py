@@ -21,7 +21,18 @@ def test_baseline():
     ).to("cuda")
     
     # 加载 Lightning LoRA
-    pipe.load_lora_weights("./models", weight_name="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors")
+    try:
+        # 先尝试从 HuggingFace 加载
+        pipe.load_lora_weights(
+            "lightx2v/Qwen-Image-Lightning",
+            weight_name="Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        )
+    except:
+        # 如果失败，从本地加载
+        pipe.load_lora_weights(
+            "./models/lightning_lora/Qwen-Image-Edit-2509",
+            weight_name="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        )
     
     # 加载图像
     input_image = Image.open("input.png").convert("RGB")
@@ -82,7 +93,18 @@ def test_custom_processor_without_pruning():
     ).to("cuda")
     
     # 加载 Lightning LoRA
-    pipe.load_lora_weights("./models", weight_name="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors")
+    try:
+        # 先尝试从 HuggingFace 加载
+        pipe.load_lora_weights(
+            "lightx2v/Qwen-Image-Lightning",
+            weight_name="Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        )
+    except:
+        # 如果失败，从本地加载
+        pipe.load_lora_weights(
+            "./models/lightning_lora/Qwen-Image-Edit-2509",
+            weight_name="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        )
     
     # ⚠️ 关键：不启用 pruning
     print("\n⚠️  Pruning: 禁用（测试纯 Processor 开销）")
@@ -148,7 +170,18 @@ def test_custom_processor_with_pruning():
     ).to("cuda")
     
     # 加载 Lightning LoRA
-    pipe.load_lora_weights("./models", weight_name="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors")
+    try:
+        # 先尝试从 HuggingFace 加载
+        pipe.load_lora_weights(
+            "lightx2v/Qwen-Image-Lightning",
+            weight_name="Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        )
+    except:
+        # 如果失败，从本地加载
+        pipe.load_lora_weights(
+            "./models/lightning_lora/Qwen-Image-Edit-2509",
+            weight_name="Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        )
     
     print("\n✅ Pruning: 启用")
     
